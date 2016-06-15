@@ -2,9 +2,40 @@ import UIKit
 import WebKit
 
 import Security
+import KeychainAccess
 
 import Foundation
 import SystemConfiguration
+import Freddy
+
+
+extension UIApplication {
+
+    internal static func 🚀sharedApplication() -> UIApplication {
+        guard UIApplication.respondsToSelector("sharedApplication") else {
+            fatalError("UIApplication.sharedKeyboardApplication(): `UIApplication` does not respond to selector `sharedApplication`.")
+        }
+
+        guard let unmanagedSharedApplication = UIApplication.performSelector("sharedApplication") else {
+            fatalError("UIApplication.sharedKeyboardApplication(): `UIApplication.sharedApplication()` returned `nil`.")
+        }
+
+        guard let sharedApplication = unmanagedSharedApplication.takeUnretainedValue() as? UIApplication else {
+            fatalError("UIApplication.sharedKeyboardApplication(): `UIApplication.sharedApplication()` returned not `UIApplication` instance.")
+        }
+
+        return sharedApplication
+    }
+
+}
+
+extension UIApplication {
+
+    internal func 🚀openURL(url: NSURL) -> Bool {
+        return self.performSelector("openURL:", withObject: url) != nil
+    }
+    
+}
 
 
 /// A Dropbox access token
@@ -75,120 +106,6 @@ public enum DropboxAuthResult {
     case Error(OAuth2Error, String)
 }
 
-class Keychain {
-    
-    class func queryWithDict(query: [String : AnyObject]) -> CFDictionaryRef
-    {
-        let bundleId = NSBundle.mainBundle().bundleIdentifier ?? ""
-        var queryDict = query
-        
-        queryDict[kSecClass as String]       = kSecClassGenericPassword
-        queryDict[kSecAttrService as String] = "\(bundleId).dropbox.authv2"
-
-        return queryDict
-    }
-
-    class func set(key: String, value: String) -> Bool {
-        if let data = value.dataUsingEncoding(NSUTF8StringEncoding) {
-            return set(key, value: data)
-        } else {
-            return false
-        }
-    }
-    
-    class func set(key: String, value: NSData) -> Bool {
-        let query = Keychain.queryWithDict([
-            (kSecAttrAccount as String): key,
-            (  kSecValueData as String): value
-        ])
-        
-        SecItemDelete(query)
-        
-        return SecItemAdd(query, nil) == noErr
-    }
-    
-    class func getAsData(key: String) -> NSData? {
-        let query = Keychain.queryWithDict([
-            (kSecAttrAccount as String): key,
-            ( kSecReturnData as String): kCFBooleanTrue,
-            ( kSecMatchLimit as String): kSecMatchLimitOne
-        ])
-        
-        var dataResult : AnyObject?
-        let status = withUnsafeMutablePointer(&dataResult) { (ptr) in
-            SecItemCopyMatching(query, UnsafeMutablePointer(ptr))
-        }
-        
-        if status == noErr {
-            return dataResult as? NSData
-        }
-        
-        return nil
-    }
-    
-    class func dbgListAllItems() {
-        let query : CFDictionaryRef = [
-            (kSecClass as String)           : kSecClassGenericPassword,
-            (kSecReturnAttributes as String): kCFBooleanTrue,
-            (       kSecMatchLimit as String): kSecMatchLimitAll
-        ]
-        
-        var dataResult : AnyObject?
-        let status = withUnsafeMutablePointer(&dataResult) { (ptr) in
-            SecItemCopyMatching(query, UnsafeMutablePointer(ptr))
-        }
-        
-        if status == noErr {
-            let results = dataResult as? [[String : AnyObject]] ?? []
-            
-            print(results.map {d in (d["svce"] as! String, d["acct"] as! String)})
-        }
-
-    }
-    
-    class func getAll() -> [String] {
-        let query = Keychain.queryWithDict([
-            ( kSecReturnAttributes as String): kCFBooleanTrue,
-            (       kSecMatchLimit as String): kSecMatchLimitAll
-        ])
-        
-        var dataResult : AnyObject?
-        let status = withUnsafeMutablePointer(&dataResult) { (ptr) in
-            SecItemCopyMatching(query, UnsafeMutablePointer(ptr))
-        }
-        
-        if status == noErr {
-            let results = dataResult as? [[String : AnyObject]] ?? []
-            return results.map { d in d["acct"] as! String }
-        
-        }
-        return []
-    }
-    
-
-    
-    class func get(key: String) -> String? {
-        if let data = getAsData(key) {
-            return NSString(data: data, encoding: NSUTF8StringEncoding) as? String
-        } else {
-            return nil
-        }
-    }
-    
-    class func delete(key: String) -> Bool {
-        let query = Keychain.queryWithDict([
-            (kSecAttrAccount as String): key
-        ])
-        
-        return SecItemDelete(query) == noErr
-    }
-    
-    class func clear() -> Bool {
-        let query = Keychain.queryWithDict([:])
-        return SecItemDelete(query) == noErr
-    }
-}
-
 class Reachability {
     /// From http://stackoverflow.com/questions/25623272/how-to-use-scnetworkreachability-in-swift/25623647#25623647.
     ///
@@ -218,6 +135,10 @@ class Reachability {
     }
 }
 
+private let keychainService = "com.anchorfree.platform"
+private let keychainAccessGroup = "group.com.anchorfree.platform"
+private let accesTokensIdentifier = "dropbox"
+
 /// Manages access token storage and authentication
 ///
 /// Use the `DropboxAuthManager` to authenticate users through OAuth2, save access tokens, and retrieve access tokens.
@@ -228,10 +149,12 @@ public class DropboxAuthManager {
     let dauthRedirectURL: NSURL
 
     let host: String
+    private var keychain = Keychain(service: keychainService, accessGroup: keychainAccessGroup)
+
     
     // MARK: Shared instance
     /// A shared instance of a `DropboxAuthManager` for convenience
-    public static var sharedAuthManager : DropboxAuthManager!
+    public static var sharedAuthManager: DropboxAuthManager!
     
     // MARK: Functions
     public init(appKey: String, host: String) {
@@ -313,7 +236,7 @@ public class DropboxAuthManager {
     }
 
     private func canOpenDAuthScheme(scheme: String) -> Bool {
-        return UIApplication.sharedApplication().canOpenURL(dAuthURL(scheme, nonce: nil))
+        return UIApplication.🚀sharedApplication().canOpenURL(dAuthURL(scheme, nonce: nil))
     }
 
     private func dAuthURL(scheme: String, nonce: String?) -> NSURL {
@@ -381,13 +304,13 @@ public class DropboxAuthManager {
             NSUserDefaults.standardUserDefaults().setObject(nonce, forKey: kDBLinkNonce)
             NSUserDefaults.standardUserDefaults().synchronize()
             
-            UIApplication.sharedApplication().openURL(dAuthURL(scheme, nonce: nonce))
+            UIApplication.🚀sharedApplication().🚀openURL(dAuthURL(scheme, nonce: nonce))
         } else {
             let web = DropboxConnectController(
                 URL: self.authURL(),
                 tryIntercept: { url in
                     if self.canHandleURL(url) {
-                        UIApplication.sharedApplication().openURL(url)
+                        UIApplication.🚀sharedApplication().🚀openURL(url)
                         return true
                     } else {
                         return false
@@ -465,11 +388,27 @@ public class DropboxAuthManager {
         
         switch result {
         case .Success(let token):
-            Keychain.set(token.uid, value: token.accessToken)
+            let dictionary: NSMutableDictionary = allTokens()
+            dictionary[token.uid] = token.accessToken
+            keychain[data: accesTokensIdentifier] = NSKeyedArchiver.archivedDataWithRootObject(dictionary)
+            
             return result
         default:
             return result
         }
+    }
+       
+    private func allTokens() -> NSMutableDictionary {
+        let data = keychain[data: accesTokensIdentifier]
+        if data == nil {
+            return NSMutableDictionary()
+        }
+        
+        let dictionary: NSMutableDictionary? = NSKeyedUnarchiver.unarchiveObjectWithData(data!) as? NSMutableDictionary
+        if dictionary == nil {
+            return NSMutableDictionary()
+        }
+        return dictionary!
     }
     
     /**
@@ -477,11 +416,12 @@ public class DropboxAuthManager {
 
         - returns: a dictionary mapping users to their access tokens
     */
-    public func getAllAccessTokens() -> [String : DropboxAccessToken] {
-        let users = Keychain.getAll()
-        var ret = [String : DropboxAccessToken]()
+    public func getAllAccessTokens() -> [String: DropboxAccessToken] {
+        let dictionary: NSMutableDictionary = allTokens()        
+        let users = dictionary.allKeys as! [String]
+        var ret = [String: DropboxAccessToken]()
         for user in users {
-            if let accessToken = Keychain.get(user) {
+            if let accessToken = dictionary[user] as? String {
                 ret[user] = DropboxAccessToken(accessToken: accessToken, uid: user)
             }
         }
@@ -505,7 +445,8 @@ public class DropboxAuthManager {
         - returns: An access token if present, otherwise `nil`.
     */
     public func getAccessToken(user: String) -> DropboxAccessToken? {
-        if let accessToken = Keychain.get(user) {
+        let dictionary: NSMutableDictionary = allTokens() 
+        if let accessToken = dictionary[user] as? String {
             return DropboxAccessToken(accessToken: accessToken, uid: user)
         } else {
             return nil
@@ -519,7 +460,10 @@ public class DropboxAuthManager {
         - returns: whether the operation succeeded
     */
     public func clearStoredAccessToken(token: DropboxAccessToken) -> Bool {
-        return Keychain.delete(token.uid)
+        let dictionary: NSMutableDictionary = allTokens() 
+        dictionary.removeObjectForKey(token.uid)
+        keychain[data: accesTokensIdentifier] = NSKeyedArchiver.archivedDataWithRootObject(dictionary)
+        return true
     }
     /**
         Delete all stored access tokens
@@ -527,7 +471,12 @@ public class DropboxAuthManager {
         - returns: whether the operation succeeded
     */
     public func clearStoredAccessTokens() -> Bool {
-        return Keychain.clear()
+        do {
+            try keychain.remove(accesTokensIdentifier)
+        } catch {            
+            return false
+        }        
+        return true
     }
     /**
         Save an access token
@@ -537,7 +486,11 @@ public class DropboxAuthManager {
         - returns: whether the operation succeeded
     */
     public func storeAccessToken(token: DropboxAccessToken) -> Bool {
-        return Keychain.set(token.uid, value: token.accessToken)
+        let dictionary: NSMutableDictionary = allTokens()
+        dictionary[token.uid] = token.accessToken
+        keychain[data: accesTokensIdentifier] = NSKeyedArchiver.archivedDataWithRootObject(dictionary)
+        
+        return true
     }
 
     /**
@@ -647,7 +600,7 @@ public class DropboxConnectController : UIViewController, WKNavigationDelegate {
         dismiss(true, animated: (sender != nil))
 
         let cancelUrl = NSURL(string: "db-\(DropboxAuthManager.sharedAuthManager.appKey)://2/cancel")!
-        UIApplication.sharedApplication().openURL(cancelUrl)
+        UIApplication.🚀sharedApplication().🚀openURL(cancelUrl)
     }
     
     func dismiss(animated: Bool) {

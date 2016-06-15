@@ -205,7 +205,7 @@ public class DropboxRpcRequest<RType: JSONSerializer, EType: JSONSerializer>: Dr
             headers[header] = val
         }
         
-        let request = DropboxTransportClient.backgroundManager.request(.POST, url, parameters: [:], headers: headers,
+        let request = DropboxTransportClient.manager.request(.POST, url, parameters: [:], headers: headers,
                                                        encoding: ParameterEncoding.Custom {(convertible, _) in
                 let mutableRequest = convertible.URLRequest.copy() as! NSMutableURLRequest
                 mutableRequest.HTTPBody = SerializeUtil.dumpJSON(params)
@@ -264,7 +264,7 @@ public class DropboxUploadRequest<RType: JSONSerializer, EType: JSONSerializer>:
         case let .Data(data):
             request = DropboxTransportClient.manager.upload(.POST, url, headers: headers, data: data)
         case let .File(file):
-            request = DropboxTransportClient.backgroundManager.upload(.POST, url, headers: headers, file: file)
+            request = DropboxTransportClient.manager.upload(.POST, url, headers: headers, file: file)
         case let .Stream(stream):
             request = DropboxTransportClient.manager.upload(.POST, url, headers: headers, stream: stream)
         }
@@ -357,7 +357,7 @@ public class DropboxDownloadRequest<RType: JSONSerializer, EType: JSONSerializer
             return finalUrl
         }
         
-        let request = DropboxTransportClient.backgroundManager.download(.POST, url, headers: headers, destination: dest)
+        let request = DropboxTransportClient.manager.download(.POST, url, headers: headers, destination: dest)
 
         super.init(request: request, responseSerializer: responseSerializer, errorSerializer: errorSerializer)
         _self = self

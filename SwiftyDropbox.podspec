@@ -10,4 +10,6 @@ Pod::Spec.new do |s|
   s.requires_arc = true
   s.ios.deployment_target = "8.0"
   s.dependency "Alamofire", "~> 3.3.1"
+  s.dependency "KeychainAccess", "~> 2"
+  s.dependency "Freddy", "~> 2"
 end
