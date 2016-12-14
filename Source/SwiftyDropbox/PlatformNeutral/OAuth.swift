@@ -470,7 +470,7 @@ class Keychain {
     fileprivate class func set(_ key: String, value: String) -> Bool {
         let dictionary: NSMutableDictionary = allTokens()
         dictionary[key] = value
-        let result = Keychain.internalKeychain[data: accessTokensIdentifier] = NSKeyedArchiver.archivedData(withRootObject: dictionary)
+        let result = Keychain.shared[data: accessTokensIdentifier] = NSKeyedArchiver.archivedData(withRootObject: dictionary)
         return (result != nil)
     }
 
@@ -488,13 +488,13 @@ class Keychain {
     fileprivate class func delete(_ key: String) -> Bool {
         let dictionary: NSMutableDictionary = allTokens()
         dictionary.removeObject(forKey: key)
-        let result = Keychain.internalKeychain[data: accessTokensIdentifier] = NSKeyedArchiver.archivedData(withRootObject: dictionary)
+        let result = Keychain.shared[data: accessTokensIdentifier] = NSKeyedArchiver.archivedData(withRootObject: dictionary)
         return (result != nil)
     }
 
     fileprivate class func clear() -> Bool {
         do {
-            try Keychain.internalKeychain.remove(accessTokensIdentifier)
+            try Keychain.shared.remove(accessTokensIdentifier)
         }
         catch {
             return false
@@ -528,22 +528,22 @@ class Keychain {
         return strippedBundleId
     }
     
-    private typealias InternalKeychain = KeychainAccess.Keychain
+    private typealias SharedKeychain = KeychainAccess.Keychain
     
-    private static var internalKeychain: InternalKeychain = Keychain.setup()
+    private static var shared: SharedKeychain = Keychain.setup()
     
     /// Setup internal keychain with service and access group, which is
     /// constructed from current Bundle id, stripped to common "base".
     /// This should give access to the same keychain by the containing app and its appex.
-    private class func setup() -> InternalKeychain {
+    private class func setup() -> SharedKeychain {
         let service = stripped(bundleId: (Bundle.main.bundleIdentifier ?? ""))      // e.g. "com.anchorfree.platform"
         let accessGroup = "group.\(service)"                                        // e.g. "group.com.anchorfree.platform"
-        return InternalKeychain(service: service, accessGroup: accessGroup)
+        return SharedKeychain(service: service, accessGroup: accessGroup)
     }
     
     /// Retrieve all tokens under the access token identifier
     private class func allTokens() -> NSMutableDictionary {
-        let data = Keychain.internalKeychain[data: accessTokensIdentifier]
+        let data = Keychain.shared[data: accessTokensIdentifier]
         if data == nil {
             return NSMutableDictionary()
         }
