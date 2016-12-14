@@ -462,92 +462,96 @@ public enum DropboxOAuthResult {
     case cancel
 }
 
+import KeychainAccess
+
+// TODO: Swift 3: Can we get rid of NSMutableDictionary here?
 class Keychain {
 
-    class func queryWithDict(_ query: [String : AnyObject]) -> CFDictionary {
-        let bundleId = Bundle.main.bundleIdentifier ?? ""
-        var queryDict = query
-
-        queryDict[kSecClass as String]       = kSecClassGenericPassword
-        queryDict[kSecAttrService as String] = "\(bundleId).dropbox.authv2" as AnyObject?
-
-        return queryDict as CFDictionary
+    fileprivate class func set(_ key: String, value: String) -> Bool {
+        let dictionary: NSMutableDictionary = allTokens()
+        dictionary[key] = value
+        let result = Keychain.internalKeychain[data: accessTokensIdentifier] = NSKeyedArchiver.archivedData(withRootObject: dictionary)
+        return (result != nil)
     }
 
-    class func set(_ key: String, value: String) -> Bool {
-        if let data = value.data(using: String.Encoding.utf8) {
-            return set(key, value: data)
-        } else {
+    fileprivate class func getAll() -> [String] {
+        let dictionary: NSMutableDictionary = allTokens()
+        let users = dictionary.allKeys as! [String]
+        return users
+    }
+
+    fileprivate class func get(_ key: String) -> String? {
+        let dictionary: NSMutableDictionary = allTokens()
+        return dictionary[key] as? String
+    }
+
+    fileprivate class func delete(_ key: String) -> Bool {
+        let dictionary: NSMutableDictionary = allTokens()
+        dictionary.removeObject(forKey: key)
+        let result = Keychain.internalKeychain[data: accessTokensIdentifier] = NSKeyedArchiver.archivedData(withRootObject: dictionary)
+        return (result != nil)
+    }
+
+    fileprivate class func clear() -> Bool {
+        do {
+            try Keychain.internalKeychain.remove(accessTokensIdentifier)
+        }
+        catch {
             return false
         }
+        return true
     }
-
-    class func set(_ key: String, value: Data) -> Bool {
-        let query = Keychain.queryWithDict([
-            (kSecAttrAccount as String): key as AnyObject,
-            (  kSecValueData as String): value as AnyObject
-        ])
-
-        SecItemDelete(query)
-
-        return SecItemAdd(query, nil) == noErr
-    }
-
-    class func getAsData(_ key: String) -> Data? {
-        let query = Keychain.queryWithDict([
-            (kSecAttrAccount as String): key as AnyObject,
-            ( kSecReturnData as String): kCFBooleanTrue,
-            ( kSecMatchLimit as String): kSecMatchLimitOne
-        ])
-
-        var dataResult: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &dataResult)
-
-        if status == noErr {
-            return dataResult as? Data
+    
+    private static let accessTokensIdentifier = "dropbox"
+    
+    /// Strips bunlde ID to have *no more* than 3 components
+    ///
+    /// For example:
+    ///
+    /// `com.example.myapp.myappex` => `com.example.myapp` _(stripped)_
+    ///
+    /// `com.example.myapp` => `com.example.myapp` _(not changed)_
+    ///
+    /// - note:
+    /// This allows us to have the same "base" service ID for containing app and extension
+    ///
+    /// - parameter bundleId: Bundle ID to strip components from
+    /// 
+    /// - returns: Bunlde ID with components stripped out, when the input has had more than 3 components
+    private class func stripped(bundleId: String) -> String {
+        var strippedBundleId = bundleId
+        let bundleIdSeparator = "."
+        var components = bundleId.components(separatedBy: bundleIdSeparator)
+        if components.count > 3 {
+            strippedBundleId = [components[0], components[1], components[2]].joined(separator: bundleIdSeparator)
         }
-
-        return nil
+        return strippedBundleId
     }
-
-    class func getAll() -> [String] {
-        let query = Keychain.queryWithDict([
-            ( kSecReturnAttributes as String): kCFBooleanTrue,
-            (       kSecMatchLimit as String): kSecMatchLimitAll
-        ])
-
-        var dataResult: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &dataResult)
-
-        if status == noErr {
-            let results = dataResult as? [[String : AnyObject]] ?? []
-            return results.map { d in d["acct"] as! String }
-
+    
+    private typealias InternalKeychain = KeychainAccess.Keychain
+    
+    private static var internalKeychain: InternalKeychain = Keychain.setup()
+    
+    /// Setup internal keychain with service and access group, which is
+    /// constructed from current Bundle id, stripped to common "base".
+    /// This should give access to the same keychain by the containing app and its appex.
+    private class func setup() -> InternalKeychain {
+        let service = stripped(bundleId: (Bundle.main.bundleIdentifier ?? ""))      // e.g. "com.anchorfree.platform"
+        let accessGroup = "group.\(service)"                                        // e.g. "group.com.anchorfree.platform"
+        return InternalKeychain(service: service, accessGroup: accessGroup)
+    }
+    
+    /// Retrieve all tokens under the access token identifier
+    private class func allTokens() -> NSMutableDictionary {
+        let data = Keychain.internalKeychain[data: accessTokensIdentifier]
+        if data == nil {
+            return NSMutableDictionary()
         }
-        return []
-    }
-
-
-
-    class func get(_ key: String) -> String? {
-        if let data = getAsData(key) {
-            return NSString(data: data, encoding: String.Encoding.utf8.rawValue) as? String
-        } else {
-            return nil
+        let dictionary: NSMutableDictionary? = NSKeyedUnarchiver.unarchiveObject(with: data!) as? NSMutableDictionary
+        if dictionary == nil {
+            return NSMutableDictionary()
         }
-    }
-
-    class func delete(_ key: String) -> Bool {
-        let query = Keychain.queryWithDict([
-            (kSecAttrAccount as String): key as AnyObject
-        ])
-
-        return SecItemDelete(query) == noErr
-    }
-
-    class func clear() -> Bool {
-        let query = Keychain.queryWithDict([:])
-        return SecItemDelete(query) == noErr
+        return dictionary!
     }
 }
 

@@ -19,4 +19,5 @@ Pod::Spec.new do |s|
   s.ios.frameworks = 'UIKit', 'Webkit', 'SystemConfiguration', 'Foundation'
 
   s.dependency       'Alamofire', '~> 4.0.1'
+  s.dependency       'KeychainAccess', '~> 3.0.1'
 end
