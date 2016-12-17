@@ -114,7 +114,7 @@ open class DropboxTransportClient {
         case let .data(data):
             request = self.manager.upload(data, to: url, method: .post, headers: headers)
         case let .file(file):
-            request = self.backgroundManager.upload(file, to: url, method: .post, headers: headers)
+            request = self.manager.upload(file, to: url, method: .post, headers: headers)
         case let .stream(stream):
             request = self.manager.upload(stream, to: url, method: .post, headers: headers)
         }
@@ -164,7 +164,7 @@ open class DropboxTransportClient {
             return (finalUrl, [])
         }
 
-        let request = self.backgroundManager.download(url, method: .post, headers: headers, to: destinationWrapper)
+        let request = self.manager.download(url, method: .post, headers: headers, to: destinationWrapper)
 
         let downloadRequestObj = DownloadRequestFile(request: request, responseSerializer: route.responseSerializer, errorSerializer: route.errorSerializer)
         _self = downloadRequestObj
@@ -185,7 +185,7 @@ open class DropboxTransportClient {
 
         let headers = getHeaders(routeStyle, jsonRequest: rawJsonRequest, host: host)
 
-        let request = self.backgroundManager.request(url, method: .post, headers: headers)
+        let request = self.manager.request(url, method: .post, headers: headers)
 
         let downloadRequestObj = DownloadRequestMemory(request: request, responseSerializer: route.responseSerializer, errorSerializer: route.errorSerializer)
 
